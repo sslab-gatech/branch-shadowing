@@ -1,0 +1,53 @@
+--- linux-4.4.23/arch/x86/kernel/apic/apic.c	2016-09-30 04:20:43.000000000 -0400
++++ apic.c	2018-03-30 14:44:44.000000000 -0400
+@@ -64,6 +64,13 @@
+ unsigned int boot_cpu_physical_apicid = -1U;
+ EXPORT_SYMBOL_GPL(boot_cpu_physical_apicid);
+ 
++// BSHADOW
++// Let lapic-freq module control timer interrupt frequency
++unsigned int lapic_next_deadline_delta = 0U;
++EXPORT_SYMBOL_GPL(lapic_next_deadline_delta);
++int lapic_target_cpu = -1;
++EXPORT_SYMBOL_GPL(lapic_target_cpu);
++
+ /*
+  * The highest APIC ID seen during enumeration.
+  */
+@@ -465,7 +472,12 @@
+ 	u64 tsc;
+ 
+ 	tsc = rdtsc();
+-	wrmsrl(MSR_IA32_TSC_DEADLINE, tsc + (((u64) delta) * TSC_DIVISOR));
++	if (smp_processor_id() != lapic_target_cpu) {
++	  wrmsrl(MSR_IA32_TSC_DEADLINE, tsc + (((u64) delta) * TSC_DIVISOR));
++        }
++	else { // BSHADOW
++	  wrmsrl(MSR_IA32_TSC_DEADLINE, tsc + lapic_next_deadline_delta);
++        }
+ 	return 0;
+ }
+ 
+@@ -867,6 +879,10 @@
+ 	setup_APIC_timer();
+ }
+ 
++// BSHADOW
++void (*timer_interrupt_hook)(void*) = NULL;
++EXPORT_SYMBOL_GPL(timer_interrupt_hook);
++
+ /*
+  * The guts of the apic timer interrupt
+  */
+@@ -875,6 +891,11 @@
+ 	int cpu = smp_processor_id();
+ 	struct clock_event_device *evt = &per_cpu(lapic_events, cpu);
+ 
++	// BSHADOW
++	if (timer_interrupt_hook) {
++	  timer_interrupt_hook((void*)&cpu);
++	}
++
+ 	/*
+ 	 * Normally we should not be here till LAPIC has been initialized but
+ 	 * in some cases like kdump, its possible that there is a pending LAPIC
